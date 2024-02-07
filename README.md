@@ -1,2 +1,2 @@
 # SP-Plugins
-Testing SourcePawns stuff for Synergy, mainly miscellaneous stuff.
+This is basically a box of plugins (?).
