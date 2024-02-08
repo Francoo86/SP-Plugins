@@ -182,6 +182,8 @@ Action PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 	return Plugin_Continue;
 }
 
+//TODO: Disable spec changing.
+//Avoid problems with spectators.
 public void TryToEnforceRagdoll(int client) {
 	int spec = GetEntPropEnt(client, Prop_Send, "m_hObserverTarget");
 	int ragdoll = ActualDolls[client].ragdoll;
@@ -194,8 +196,6 @@ public void TryToEnforceRagdoll(int client) {
 public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3], float angles[3], 
 int& weapon, int& subtype, int& cmdnum, int& tickcount, int& seed, int mouse[2])
 {
-	//TODO: Disable spec changing.
-	//Avoid problems with spectators.
 	int isPressing = mouse[0] || mouse[1];
 
 	if (isPressing) {
