@@ -42,6 +42,10 @@ enum struct RagdollData {
 
 RagdollData ActualDolls[MAX_PLAYERS + 1];
 
+public bool IsRagdoll(int client) {
+	return ActualDolls[client].ragdoll > 0;
+}
+
 public void Unragdolize(int client){
 	float pos[3], velocity[3];
 	int ragdoll = ActualDolls[client].ragdoll;
@@ -72,8 +76,15 @@ public void Unragdolize(int client){
 	RemoveEntity(ragdoll);
 }
 
-public Action Placeholder(int client) {
-	return Plugin_Stop;
+public void PossessRagdoll(int client, int ragdoll) {
+	SetEntProp(client, Prop_Send, "m_iObserverMode", OBS_MODE_CHASE);
+	SetEntPropEnt(client, Prop_Send, "m_hObserverTarget", ragdoll);
+	SetEntityMoveType(client, MOVETYPE_OBSERVER);
+	AcceptEntityInput(client, "SetParent", ragdoll);
+}
+
+public void Ragdolize(int client) {
+
 }
 
 public Action MakeRagdolls(int client, int varargs) {
@@ -132,11 +143,7 @@ public Action MakeRagdolls(int client, int varargs) {
 		AcceptEntityInput(ragdoll, "EnableMotion");
 		SetEntityMoveType(ragdoll, MOVETYPE_VPHYSICS);
 
-
-		SetEntProp(client, Prop_Send, "m_iObserverMode", OBS_MODE_CHASE);
-		SetEntPropEnt(client, Prop_Send, "m_hObserverTarget", ragdoll);
-		SetEntityMoveType(client, MOVETYPE_OBSERVER);
-		AcceptEntityInput(client, "SetParent", ragdoll);
+		PossessRagdoll(client, ragdoll);
 
 		int effects = GetEntProp(client, Prop_Data, "m_fEffects");
 		SetEntProp(client, Prop_Send, "m_fEffects", effects + EF_NODRAW);
@@ -170,6 +177,29 @@ Action PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 	int client = GetClientOfUserId(GetEventInt(event, "userid")); // Get Player's userid
 	if (ActualDolls[client].ragdoll > 0) {
 		Unragdolize(client);
+	}
+
+	return Plugin_Continue;
+}
+
+public void TryToEnforceRagdoll(int client) {
+	int spec = GetEntPropEnt(client, Prop_Send, "m_hObserverTarget");
+	int ragdoll = ActualDolls[client].ragdoll;
+
+	if (ragdoll > 0 && (spec != ragdoll)) {
+		PossessRagdoll(client, ragdoll);
+	}
+}
+
+public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3], float angles[3], 
+int& weapon, int& subtype, int& cmdnum, int& tickcount, int& seed, int mouse[2])
+{
+	//TODO: Disable spec changing.
+	//Avoid problems with spectators.
+	int isPressing = mouse[0] || mouse[1];
+
+	if (isPressing) {
+		TryToEnforceRagdoll(client);
 	}
 
 	return Plugin_Continue;
