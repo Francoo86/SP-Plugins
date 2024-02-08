@@ -1,9 +1,12 @@
 #include <sdkhooks>
 #include <sdktools>
 #include <sourcemod>
+#include <helpers.sp>
 
 #pragma newdecls required
 #pragma semicolon 1
+
+float VECTOR_ORIGIN[3] = {0.0, 0.0, 0.0};
 
 #define MAX_MODEL_SIZE 128
 #define SOLID_VPHYSICS 6
@@ -16,16 +19,23 @@
 #define OBS_MODE_CHASE 5
 #define OBS_MODE_NONE 0
 
-#define EF_NODRAW 32
 
 #define MAX_PLAYERS 64
 
+//Goofy ahh parent.
+#define EF_NODRAW 32
 //Parent bonemerging?.
 #define EF_BONEMERGE 1
 #define EF_BONEMERGE_FASTCULL 128
 #define EF_PARENT_ANIMATES 512
 
-float VECTOR_ORIGIN[3] = {0.0, 0.0, 0.0};
+//Internal keys.
+#define ABS_VEL_KEY "m_vecAbsVelocity"
+#define VELOCITY_KEY "m_vecVelocity"
+#define POSITION_KEY "m_vecOrigin"
+
+//PLS WORK
+#define BASE_VELOCITY "m_vecBaseVelocity"
 
 public Plugin myinfo =
 {
@@ -55,11 +65,12 @@ public void Unragdolize(int client){
 		return;
 	}
 
-	GetEntPropVector(ragdoll, Prop_Data, "m_vecOrigin", pos);
-	SetEntPropVector(client, Prop_Send, "m_vecOrigin", pos);
+	GetEntPropVector(ragdoll, Prop_Data, POSITION_KEY, pos);
+	SetEntPropVector(client, Prop_Send, POSITION_KEY, pos);
 
-	GetEntPropVector(ragdoll, Prop_Data, "m_vecVelocity", velocity);
-	SetEntPropVector(client, Prop_Data, "m_vecVelocity", VECTOR_ORIGIN);
+	GetEntPropVector(ragdoll, Prop_Data, VELOCITY_KEY, velocity);
+	//Hope this works.
+	SetEntPropVector(client, Prop_Send, VELOCITY_KEY, VECTOR_ORIGIN);
 
 	AcceptEntityInput(client, "ClearParent");
 
@@ -67,8 +78,7 @@ public void Unragdolize(int client){
 	SetEntPropEnt(client, Prop_Send, "m_hObserverTarget", NULL_ACTIVATOR);
 	SetEntityMoveType(client, MOVETYPE_WALK);
 	
-	int effects = GetEntProp(client, Prop_Data, "m_fEffects");
-	SetEntProp(client, Prop_Send, "m_fEffects", effects - EF_NODRAW);
+	SetNoDraw(client, false);
 
 	//Unqueue this thing.
 	ActualDolls[client].ragdoll = NO_RAGDOLL;
@@ -77,66 +87,42 @@ public void Unragdolize(int client){
 }
 
 public void PossessRagdoll(int client, int ragdoll) {
+	//Shitty thing, why tf this doesn't work.
+	SetEntPropVector(client, Prop_Send, VELOCITY_KEY, VECTOR_ORIGIN);
+	SetEntPropVector(client, Prop_Data, BASE_VELOCITY, VECTOR_ORIGIN);
+
+	SetEntityMoveType(client, MOVETYPE_OBSERVER);
 	SetEntProp(client, Prop_Send, "m_iObserverMode", OBS_MODE_CHASE);
 	SetEntPropEnt(client, Prop_Send, "m_hObserverTarget", ragdoll);
-	SetEntityMoveType(client, MOVETYPE_OBSERVER);
-	AcceptEntityInput(client, "SetParent", ragdoll);
+
+	SetParent(client, ragdoll);
 }
 
 public void Ragdolize(int client) {
-
-}
-
-public Action MakeRagdolls(int client, int varargs) {
 	int oldRagdoll = ActualDolls[client].ragdoll;
 
 	if (!IsPlayerAlive(client)) {
-		return Plugin_Handled;
+		return;
 	}
 
 	if(oldRagdoll > 0) {
 		Unragdolize(client);
-
-		return Plugin_Handled;
+		return;
 	}
-
-	//Try to get player model.
-	char modelName[MAX_MODEL_SIZE];
-	GetClientModel(client, modelName, MAX_MODEL_SIZE);
-	PrecacheModel(modelName);
-
-	//Setup ragdoll.
-	int ragdoll = CreateEntityByName("prop_ragdoll");
-	DispatchKeyValue(ragdoll, "model", modelName);
-
 
 	float origin[3], velocity[3];
 
+	int ragdoll = CreateRagdollBasedOnPlayer(client);
 	GetClientAbsOrigin(client, origin);
 
 	//Get Velocity.
 	GetEntPropVector(client, Prop_Data, "m_vecAbsVelocity", velocity);
 
-	//Shitty thing.
-	SetEntPropVector(client, Prop_Data, "m_vecAbsVelocity", VECTOR_ORIGIN);
-
-	PrintToChat(client, "The actual velocity length is: %0.2f", GetVectorLength(velocity));
-
-	SetEntProp(ragdoll, Prop_Data, "m_nSolidType", SOLID_VPHYSICS);
-	SetEntProp(ragdoll, Prop_Data, "m_CollisionGroup", COLLISION_GROUP_PLAYER);
-	SetEntityMoveType(ragdoll, MOVETYPE_NONE);
-
-	AcceptEntityInput(ragdoll, "SetParent", client, client);
-	SetEntProp(ragdoll, Prop_Send, "m_fEffects", EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES);
-
-	ActivateEntity(ragdoll);
-
 	origin[2] += 32;
 
 	if(DispatchSpawn(ragdoll)) {
 		//Stop parenting pls.
-		AcceptEntityInput(ragdoll, "ClearParent");
-
+		RemoveParent(ragdoll);
 		TeleportEntity(ragdoll, origin, NULL_VECTOR, velocity);
 
 		SetEntProp(ragdoll, Prop_Data, "m_CollisionGroup", 0);
@@ -145,11 +131,14 @@ public Action MakeRagdolls(int client, int varargs) {
 
 		PossessRagdoll(client, ragdoll);
 
-		int effects = GetEntProp(client, Prop_Data, "m_fEffects");
-		SetEntProp(client, Prop_Send, "m_fEffects", effects + EF_NODRAW);
+		SetNoDraw(client, true);
 
 		ActualDolls[client].ragdoll = ragdoll;
 	}
+}
+
+public Action MakeRagdolls(int client, int varargs) {
+	Ragdolize(client);
 
 	return Plugin_Handled;
 }
