@@ -1,7 +1,7 @@
 #include <sdkhooks>
 #include <sdktools>
 #include <sourcemod>
-#include <helpers.sp>
+#include <syn_helpers.sp>
 
 #pragma newdecls required
 #pragma semicolon 1
