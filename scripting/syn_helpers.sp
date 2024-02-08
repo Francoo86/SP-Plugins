@@ -12,7 +12,7 @@
 #define EFFECT_KEY "m_fEffects"
 
 void SetNoDraw(int ent, bool set) {
-	int effects = GetEntProp(ent, Prop_Data, EFFECT_KEY);
+	int effects = GetEntProp(ent, Prop_Send, EFFECT_KEY);
 
 	if(set) {
 		effects |= EF_NODRAW;
@@ -37,6 +37,14 @@ void RemoveParent(int child) {
 
     AcceptEntityInput(child, "ClearParent");
     SetEntProp(child, Prop_Send, EFFECT_KEY, effects);
+}
+
+int GetFOV(int client) {
+    return GetEntProp(client, Prop_Data, "m_iFOV");
+}
+
+void SetFOV(int client, int value) {
+    SetEntProp(client, Prop_Send, "m_iFOV", value);
 }
 
 public int CreateRagdollBasedOnPlayer(int client) {

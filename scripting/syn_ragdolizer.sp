@@ -48,9 +48,13 @@ public Plugin myinfo =
 
 enum struct RagdollData {
 	int ragdoll;
+	int FOV;
+	bool hooked;
 }
 
 RagdollData ActualDolls[MAX_PLAYERS + 1];
+
+Handle FOVConVar;
 
 public bool IsRagdoll(int client) {
 	return ActualDolls[client].ragdoll > 0;
@@ -69,8 +73,9 @@ public void Unragdolize(int client){
 	SetEntPropVector(client, Prop_Send, POSITION_KEY, pos);
 
 	GetEntPropVector(ragdoll, Prop_Data, VELOCITY_KEY, velocity);
-	//Hope this works.
-	SetEntPropVector(client, Prop_Send, VELOCITY_KEY, VECTOR_ORIGIN);
+	//Enforce 0 Velocity.
+	SetEntPropVector(client, Prop_Data, VELOCITY_KEY, VECTOR_ORIGIN);
+	SetEntPropVector(client, Prop_Data, BASE_VELOCITY, VECTOR_ORIGIN);
 
 	AcceptEntityInput(client, "ClearParent");
 
@@ -80,6 +85,8 @@ public void Unragdolize(int client){
 	
 	SetNoDraw(client, false);
 
+	SetFOV(client, ActualDolls[client].FOV);
+
 	//Unqueue this thing.
 	ActualDolls[client].ragdoll = NO_RAGDOLL;
 
@@ -88,7 +95,7 @@ public void Unragdolize(int client){
 
 public void PossessRagdoll(int client, int ragdoll) {
 	//Shitty thing, why tf this doesn't work.
-	SetEntPropVector(client, Prop_Send, VELOCITY_KEY, VECTOR_ORIGIN);
+	SetEntPropVector(client, Prop_Data, VELOCITY_KEY, VECTOR_ORIGIN);
 	SetEntPropVector(client, Prop_Data, BASE_VELOCITY, VECTOR_ORIGIN);
 
 	SetEntityMoveType(client, MOVETYPE_OBSERVER);
@@ -96,6 +103,9 @@ public void PossessRagdoll(int client, int ragdoll) {
 	SetEntPropEnt(client, Prop_Send, "m_hObserverTarget", ragdoll);
 
 	SetParent(client, ragdoll);
+
+	SetNoDraw(client, true);
+	SetFOV(client, GetConVarInt(FOVConVar));
 }
 
 public void Ragdolize(int client) {
@@ -110,30 +120,43 @@ public void Ragdolize(int client) {
 		return;
 	}
 
-	float origin[3], velocity[3];
+	float origin[3], angles[3], velocity[3];
 
 	int ragdoll = CreateRagdollBasedOnPlayer(client);
 	GetClientAbsOrigin(client, origin);
+
+	GetClientAbsAngles(client, angles);
 
 	//Get Velocity.
 	GetEntPropVector(client, Prop_Data, "m_vecAbsVelocity", velocity);
 
 	origin[2] += 32;
 
+	int forceBone = GetEntProp(client, Prop_Send, "m_nForceBone");
+	SetEntProp(ragdoll, Prop_Send, "m_nForceBone", forceBone);
+
+	float vecForce[3];
+	GetEntPropVector(client, Prop_Send, "m_vecForce", vecForce);
+
 	if(DispatchSpawn(ragdoll)) {
 		//Stop parenting pls.
 		RemoveParent(ragdoll);
-		TeleportEntity(ragdoll, origin, NULL_VECTOR, velocity);
+
+		TeleportEntity(ragdoll, origin, angles, velocity);
 
 		SetEntProp(ragdoll, Prop_Data, "m_CollisionGroup", 0);
 		AcceptEntityInput(ragdoll, "EnableMotion");
 		SetEntityMoveType(ragdoll, MOVETYPE_VPHYSICS);
 
+		int actualFov = GetFOV(client);
+		ActualDolls[client].FOV = actualFov;
 		PossessRagdoll(client, ragdoll);
 
-		SetNoDraw(client, true);
-
+		SetFOV(client, GetConVarInt(FOVConVar));
 		ActualDolls[client].ragdoll = ragdoll;
+
+		SetEntProp(ragdoll, Prop_Send, "m_nForceBone", forceBone);
+		SetEntPropVector(ragdoll, Prop_Send, "m_vecForce", vecForce);
 	}
 }
 
@@ -174,30 +197,31 @@ Action PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 //TODO: Disable spec changing.
 //Avoid problems with spectators.
 public void TryToEnforceRagdoll(int client) {
-	int spec = GetEntPropEnt(client, Prop_Send, "m_hObserverTarget");
 	int ragdoll = ActualDolls[client].ragdoll;
 
-	if (ragdoll > 0 && (spec != ragdoll)) {
-		PossessRagdoll(client, ragdoll);
+	//Player should be alive for this checking.
+	if (IsPlayerAlive(client) && (ragdoll > 0)) {
+		int spec = GetEntPropEnt(client, Prop_Send, "m_hObserverTarget");
+
+		if (spec != ragdoll) {
+			PossessRagdoll(client, ragdoll);
+		}
 	}
 }
-
-public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3], float angles[3], 
-int& weapon, int& subtype, int& cmdnum, int& tickcount, int& seed, int mouse[2])
-{
-	int isPressing = mouse[0] || mouse[1];
-
-	if (isPressing) {
-		TryToEnforceRagdoll(client);
-	}
-
-	return Plugin_Continue;
-}
-
 
 public void OnPluginStart()
 {
 	RegConsoleCmd("sm_test_entity", MakeRagdolls, "Some interesting test...");
+	FOVConVar = CreateConVar("sm_ragdoll_fov", "45", "Sets the FOV for ragdolizing.", FCVAR_REPLICATED | FCVAR_SERVER_CAN_EXECUTE);
+
 	HookEvent("player_death", PlayerDeath);
 	HookEvent("player_spawn", PlayerSpawn);
+}
+
+public void OnGameFrame() {
+	for(int client = 1; client <= MaxClients; client++){
+		if (!IsClientInGame(client)) continue;
+
+		TryToEnforceRagdoll(client);
+	}
 }
