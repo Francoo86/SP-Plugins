@@ -49,7 +49,7 @@ public Plugin myinfo =
 enum struct RagdollData {
 	int ragdoll;
 	int FOV;
-	bool hooked;
+	float lastTime;
 }
 
 RagdollData ActualDolls[MAX_PLAYERS + 1];
@@ -64,7 +64,7 @@ public void Unragdolize(int client){
 	float pos[3], velocity[3];
 	int ragdoll = ActualDolls[client].ragdoll;
 
-	if (ragdoll == 0 && !IsValidEntity(ragdoll)) {
+	if (ragdoll <= 0) {
 		ActualDolls[client].ragdoll = NO_RAGDOLL;
 		return;
 	}
@@ -108,14 +108,12 @@ public void PossessRagdoll(int client, int ragdoll) {
 	SetFOV(client, GetConVarInt(FOVConVar));
 }
 
-public void Ragdolize(int client) {
-	int oldRagdoll = ActualDolls[client].ragdoll;
-
-	if (!IsPlayerAlive(client)) {
+void Ragdolize(int client, bool onDeath = false) {
+	if (!IsPlayerAlive(client) && !onDeath) {
 		return;
 	}
 
-	if(oldRagdoll > 0) {
+	if(IsPlayerAlive(client) && IsRagdoll(client)) {
 		Unragdolize(client);
 		return;
 	}
@@ -153,10 +151,11 @@ public void Ragdolize(int client) {
 		PossessRagdoll(client, ragdoll);
 
 		SetFOV(client, GetConVarInt(FOVConVar));
-		ActualDolls[client].ragdoll = ragdoll;
 
 		SetEntProp(ragdoll, Prop_Send, "m_nForceBone", forceBone);
 		SetEntPropVector(ragdoll, Prop_Send, "m_vecForce", vecForce);
+
+		ActualDolls[client].ragdoll = ragdoll;
 	}
 }
 
@@ -179,6 +178,14 @@ Action PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 	int client = GetClientOfUserId(GetEventInt(event, "userid")); // Get Player's userid
 	if (ActualDolls[client].ragdoll > 0) {
 		RequestFrame(RemoveGoofyDoll, client);
+	}
+	else {
+		//TODO: Convarize.
+		Ragdolize(client, true);
+		//Don't create cl dolls.
+		RequestFrame(RemoveGoofyDoll, client);
+
+		ActualDolls[client].lastTime = GetGameTime() + 4;
 	}
 
 	return Plugin_Continue;
@@ -209,9 +216,23 @@ public void TryToEnforceRagdoll(int client) {
 	}
 }
 
+public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3], float angles[3]
+, int& weapon, int& subtype, int& cmdnum, int& tickcount, int& seed, int mouse[2]){
+	if(!IsRagdoll(client)) {
+		return Plugin_Continue;
+	}
+
+	if (IsPlayerAlive(client) && (buttons & IN_WALK)) {
+		buttons &= ~IN_WALK;
+		Unragdolize(client);
+	}
+
+	return Plugin_Changed;
+}
+
 public void OnPluginStart()
 {
-	RegConsoleCmd("sm_test_entity", MakeRagdolls, "Some interesting test...");
+	RegConsoleCmd("sm_ragdolize", MakeRagdolls, "Ragdolizes yourself.");
 	FOVConVar = CreateConVar("sm_ragdoll_fov", "45", "Sets the FOV for ragdolizing.", FCVAR_REPLICATED | FCVAR_SERVER_CAN_EXECUTE);
 
 	HookEvent("player_death", PlayerDeath);
