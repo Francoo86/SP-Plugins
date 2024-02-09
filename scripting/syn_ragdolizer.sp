@@ -113,11 +113,6 @@ void Ragdolize(int client, bool onDeath = false) {
 		return;
 	}
 
-	if(IsPlayerAlive(client) && IsRagdoll(client)) {
-		Unragdolize(client);
-		return;
-	}
-
 	float origin[3], angles[3], velocity[3];
 
 	int ragdoll = CreateRagdollBasedOnPlayer(client);
@@ -159,8 +154,17 @@ void Ragdolize(int client, bool onDeath = false) {
 	}
 }
 
-public Action MakeRagdolls(int client, int varargs) {
-	Ragdolize(client);
+public Action HandleRagdolling(int client, int varargs) {
+	if (!IsPlayerAlive(client)) {
+		return Plugin_Continue;
+	}
+
+	if (!IsRagdoll(client)) {
+		Ragdolize(client);
+	}
+	else {
+		Unragdolize(client);
+	}
 
 	return Plugin_Handled;
 }
@@ -232,7 +236,7 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 
 public void OnPluginStart()
 {
-	RegConsoleCmd("sm_ragdolize", MakeRagdolls, "Ragdolizes yourself.");
+	RegConsoleCmd("sm_ragdolize", HandleRagdolling, "Ragdolizes yourself.");
 	FOVConVar = CreateConVar("sm_ragdoll_fov", "45", "Sets the FOV for ragdolizing.", FCVAR_REPLICATED | FCVAR_SERVER_CAN_EXECUTE);
 
 	HookEvent("player_death", PlayerDeath);
