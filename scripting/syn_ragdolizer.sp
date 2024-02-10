@@ -37,6 +37,8 @@ float VECTOR_ORIGIN[3] = {0.0, 0.0, 0.0};
 //PLS WORK
 #define BASE_VELOCITY "m_vecBaseVelocity"
 
+Handle CreateServerRagdoll;
+
 public Plugin myinfo =
 {
 	name = "SP-Plugins",
@@ -113,45 +115,28 @@ void Ragdolize(int client, bool onDeath = false) {
 		return;
 	}
 
-	float origin[3], angles[3], velocity[3];
+	static MemoryBlock damage;
 
-	int ragdoll = CreateRagdollBasedOnPlayer(client);
-	GetClientAbsOrigin(client, origin);
+	if (damage == null)
+		damage = new MemoryBlock(0x4C);
 
-	GetClientAbsAngles(client, angles);
+	int forceBone = 0;
 
-	//Get Velocity.
-	GetEntPropVector(client, Prop_Data, "m_vecAbsVelocity", velocity);
+	if(onDeath)
+		forceBone = GetEntProp(client, Prop_Send, "m_nForceBone");
 
-	origin[2] += 32;
+	int ragdoll = SDKCall(CreateServerRagdoll, client, forceBone, damage.Address, 3, false);
+	SetupRagdollForUse(client, ragdoll);
+}
 
-	int forceBone = GetEntProp(client, Prop_Send, "m_nForceBone");
-	SetEntProp(ragdoll, Prop_Send, "m_nForceBone", forceBone);
+void SetupRagdollForUse(int client, int ragdoll) {
+	int actualFov = GetFOV(client);
+	ActualDolls[client].FOV = actualFov;
+	PossessRagdoll(client, ragdoll);
 
-	float vecForce[3];
-	GetEntPropVector(client, Prop_Send, "m_vecForce", vecForce);
+	SetFOV(client, GetConVarInt(FOVConVar));
 
-	if(DispatchSpawn(ragdoll)) {
-		//Stop parenting pls.
-		RemoveParent(ragdoll);
-
-		TeleportEntity(ragdoll, origin, angles, velocity);
-
-		SetEntProp(ragdoll, Prop_Data, "m_CollisionGroup", 0);
-		AcceptEntityInput(ragdoll, "EnableMotion");
-		SetEntityMoveType(ragdoll, MOVETYPE_VPHYSICS);
-
-		int actualFov = GetFOV(client);
-		ActualDolls[client].FOV = actualFov;
-		PossessRagdoll(client, ragdoll);
-
-		SetFOV(client, GetConVarInt(FOVConVar));
-
-		SetEntProp(ragdoll, Prop_Send, "m_nForceBone", forceBone);
-		SetEntPropVector(ragdoll, Prop_Send, "m_vecForce", vecForce);
-
-		ActualDolls[client].ragdoll = ragdoll;
-	}
+	ActualDolls[client].ragdoll = ragdoll;
 }
 
 public Action HandleRagdolling(int client, int varargs) {
@@ -234,6 +219,27 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 	return Plugin_Changed;
 }
 
+void LoadMethods() {
+	GameData data = new GameData("syn_server");
+	if(data == null) {
+		SetFailState("Can't load the HL2DM methods.");
+		return;
+	}
+
+	StartPrepSDKCall(SDKCall_Static);
+	PrepSDKCall_SetFromConf(data, SDKConf_Signature, "CreateServerRagdoll");
+	PrepSDKCall_AddParameter(SDKType_CBasePlayer, SDKPass_Pointer); 
+	PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_Plain);       
+	PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_ByRef);      
+	PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_Plain);       
+	PrepSDKCall_AddParameter(SDKType_Bool, SDKPass_Plain);               
+	PrepSDKCall_SetReturnInfo(SDKType_CBaseEntity, SDKPass_Pointer);
+
+	delete data;
+
+	CreateServerRagdoll = EndPrepSDKCall();
+}
+
 public void OnPluginStart()
 {
 	RegConsoleCmd("sm_ragdolize", HandleRagdolling, "Ragdolizes yourself.");
@@ -241,6 +247,8 @@ public void OnPluginStart()
 
 	HookEvent("player_death", PlayerDeath);
 	HookEvent("player_spawn", PlayerSpawn);
+
+	LoadMethods();
 }
 
 public void OnGameFrame() {

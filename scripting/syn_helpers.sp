@@ -1,3 +1,5 @@
+#include <sourcescramble>
+
 #define MAX_MODEL_SIZE 128
 
 #define SOLID_VPHYSICS 6
