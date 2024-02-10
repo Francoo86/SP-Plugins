@@ -13,6 +13,8 @@
 
 #define EFFECT_KEY "m_fEffects"
 
+public float VECTOR_ORIGIN[3] = {0.0, 0.0, 0.0};
+
 void SetNoDraw(int ent, bool set) {
 	int effects = GetEntProp(ent, Prop_Send, EFFECT_KEY);
 

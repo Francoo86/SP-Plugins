@@ -6,13 +6,13 @@
 #pragma newdecls required
 #pragma semicolon 1
 
-float VECTOR_ORIGIN[3] = {0.0, 0.0, 0.0};
-
 #define MAX_MODEL_SIZE 128
 #define SOLID_VPHYSICS 6
 
+#define COLLISION_GROUP_NONE 0
 #define COLLISION_GROUP_PLAYER 5
-#define NULL_ACTIVATOR -1
+
+#define NULL_ENTITY -1
 #define NO_RAGDOLL -1
 
 //Spectate thingy?
@@ -71,18 +71,24 @@ public void Unragdolize(int client){
 		return;
 	}
 
-	GetEntPropVector(ragdoll, Prop_Data, POSITION_KEY, pos);
+	GetEntPropVector(client, Prop_Data, POSITION_KEY, pos);
+
+	if(IsValidEntity(ragdoll)){
+		GetEntPropVector(ragdoll, Prop_Data, POSITION_KEY, pos);
+		GetEntPropVector(ragdoll, Prop_Data, VELOCITY_KEY, velocity);
+		RemoveEntity(ragdoll);
+	}
+
+	//Enforce 0 Velocity.
 	SetEntPropVector(client, Prop_Send, POSITION_KEY, pos);
 
-	GetEntPropVector(ragdoll, Prop_Data, VELOCITY_KEY, velocity);
-	//Enforce 0 Velocity.
 	SetEntPropVector(client, Prop_Data, VELOCITY_KEY, VECTOR_ORIGIN);
 	SetEntPropVector(client, Prop_Data, BASE_VELOCITY, VECTOR_ORIGIN);
 
 	AcceptEntityInput(client, "ClearParent");
 
 	SetEntProp(client, Prop_Send, "m_iObserverMode", OBS_MODE_NONE);
-	SetEntPropEnt(client, Prop_Send, "m_hObserverTarget", NULL_ACTIVATOR);
+	SetEntPropEnt(client, Prop_Send, "m_hObserverTarget", NULL_ENTITY);
 	SetEntityMoveType(client, MOVETYPE_WALK);
 	
 	SetNoDraw(client, false);
@@ -91,8 +97,6 @@ public void Unragdolize(int client){
 
 	//Unqueue this thing.
 	ActualDolls[client].ragdoll = NO_RAGDOLL;
-
-	RemoveEntity(ragdoll);
 }
 
 public void PossessRagdoll(int client, int ragdoll) {
@@ -110,23 +114,27 @@ public void PossessRagdoll(int client, int ragdoll) {
 	SetFOV(client, GetConVarInt(FOVConVar));
 }
 
+MemoryBlock Damage;
+
 void Ragdolize(int client, bool onDeath = false) {
 	if (!IsPlayerAlive(client) && !onDeath) {
 		return;
 	}
 
-	static MemoryBlock damage;
-
-	if (damage == null)
-		damage = new MemoryBlock(0x4C);
-
 	int forceBone = 0;
 
-	if(onDeath)
+	if(onDeath){
 		forceBone = GetEntProp(client, Prop_Send, "m_nForceBone");
+	}
+	else
+	{
+		SetEntPropVector(client, Prop_Send, "m_vecForce", VECTOR_ORIGIN);
+	}
 
-	int ragdoll = SDKCall(CreateServerRagdoll, client, forceBone, damage.Address, 3, false);
-	SetupRagdollForUse(client, ragdoll);
+	int ragdoll = SDKCall(CreateServerRagdoll, client, forceBone, Damage.Address, COLLISION_GROUP_NONE, false);
+
+	if(IsValidEntity(ragdoll))
+		SetupRagdollForUse(client, ragdoll);
 }
 
 void SetupRagdollForUse(int client, int ragdoll) {
@@ -165,6 +173,7 @@ void RemoveGoofyDoll(int client){
 Action PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(GetEventInt(event, "userid")); // Get Player's userid
+
 	if (ActualDolls[client].ragdoll > 0) {
 		RequestFrame(RemoveGoofyDoll, client);
 	}
@@ -196,10 +205,10 @@ public void TryToEnforceRagdoll(int client) {
 	int ragdoll = ActualDolls[client].ragdoll;
 
 	//Player should be alive for this checking.
-	if (IsPlayerAlive(client) && (ragdoll > 0)) {
+	if (IsPlayerAlive(client) && (IsValidEntity(ragdoll))) {
 		int spec = GetEntPropEnt(client, Prop_Send, "m_hObserverTarget");
 
-		if (spec != ragdoll) {
+		if (IsValidEntity(spec) && (spec != ragdoll)) {
 			PossessRagdoll(client, ragdoll);
 		}
 	}
@@ -221,6 +230,8 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 
 void LoadMethods() {
 	GameData data = new GameData("syn_server");
+	Damage = new MemoryBlock(0x4C);
+	
 	if(data == null) {
 		SetFailState("Can't load the HL2DM methods.");
 		return;
@@ -240,8 +251,20 @@ void LoadMethods() {
 	CreateServerRagdoll = EndPrepSDKCall();
 }
 
+void ResetRagdollDataForAll(){
+	//Avoid issues with getting stuck and stuff.
+	for(int client = 1; client <= MaxClients; client++) {
+		ActualDolls[client].ragdoll = NO_RAGDOLL;
+	}
+}
+
+public void OnMapStart() {
+	ResetRagdollDataForAll();
+}
+
 public void OnPluginStart()
 {
+	Damage = new MemoryBlock(0x4C);
 	RegConsoleCmd("sm_ragdolize", HandleRagdolling, "Ragdolizes yourself.");
 	FOVConVar = CreateConVar("sm_ragdoll_fov", "45", "Sets the FOV for ragdolizing.", FCVAR_REPLICATED | FCVAR_SERVER_CAN_EXECUTE);
 
